@@ -34,6 +34,7 @@ const mysqlDateFormat = "2006-01-02"
 
 type posSaver struct {
 	pos   mysql.Position
+	gSet  string
 	force bool
 }
 
@@ -41,13 +42,14 @@ type eventHandler struct {
 	r *River
 }
 
+// TODO: update position with new struct with gtidsets
 func (h *eventHandler) OnRotate(e *replication.RotateEvent) error {
 	pos := mysql.Position{
 		Name: string(e.NextLogName),
 		Pos:  uint32(e.Position),
 	}
 
-	h.r.syncCh <- posSaver{pos, true}
+	h.r.syncCh <- posSaver{pos, "", true}
 
 	return h.r.ctx.Err()
 }
@@ -61,12 +63,12 @@ func (h *eventHandler) OnTableChanged(schema, table string) error {
 }
 
 func (h *eventHandler) OnDDL(nextPos mysql.Position, _ *replication.QueryEvent) error {
-	h.r.syncCh <- posSaver{nextPos, true}
+	h.r.syncCh <- posSaver{nextPos, "", true}
 	return h.r.ctx.Err()
 }
 
 func (h *eventHandler) OnXID(nextPos mysql.Position) error {
-	h.r.syncCh <- posSaver{nextPos, false}
+	h.r.syncCh <- posSaver{nextPos, "", false}
 	return h.r.ctx.Err()
 }
 
@@ -100,10 +102,18 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 }
 
 func (h *eventHandler) OnGTID(gtid mysql.GTIDSet) error {
+	log.Infof("gtid: %s", gtid)
 	return nil
 }
 
-func (h *eventHandler) OnPosSynced(pos mysql.Position, force bool) error {
+// TODO: flush binlog, gtidset ?
+func (h *eventHandler) OnPosSynced(pos mysql.Position, gset mysql.GTIDSet, force bool) error {
+	var gtids string
+	if gset != nil {
+		gtids = gset.String()
+	}
+	log.Infof("OnPosSynced binlog: %v, gtid: %s", pos, gtids)
+	h.r.syncCh <- posSaver{pos, gtids, true}
 	return nil
 }
 
@@ -130,6 +140,7 @@ func (r *River) syncLoop() {
 	reqs := make([]*elastic.BulkRequest, 0, 1024)
 
 	var pos mysql.Position
+	var gtids string
 
 	for {
 		needFlush := false
@@ -140,11 +151,13 @@ func (r *River) syncLoop() {
 			switch v := v.(type) {
 			case posSaver:
 				now := time.Now()
+				log.Debugf("receive posSaver: pos:%v,  gtid: %s", v.pos, v.gSet)
 				if v.force || now.Sub(lastSavedTime) > 3*time.Second {
 					lastSavedTime = now
 					needFlush = true
 					needSavePos = true
 					pos = v.pos
+					gtids = v.gSet
 				}
 			case []*elastic.BulkRequest:
 				reqs = append(reqs, v...)
@@ -167,11 +180,16 @@ func (r *River) syncLoop() {
 		}
 
 		if needSavePos {
-			if err := r.master.Save(pos); err != nil {
-				log.Errorf("save sync position %s err %v, close sync", pos, err)
-				r.cancel()
-				return
+			// only gtid is enabled and OnPosSynced handler is emmitted, or slave run with file-position mode.
+			log.Infof("needSavePos: %v, gtids: %s, gtidEnabled: %t", pos, gtids, r.gtidEnabled)
+			if (r.gtidEnabled && gtids != "") || !r.gtidEnabled {
+				if err := r.master.Save(pos, gtids); err != nil {
+					log.Errorf("save sync position %s err %v, close sync", pos, err)
+					r.cancel()
+					return
+				}
 			}
+
 		}
 	}
 }

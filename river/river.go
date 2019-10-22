@@ -3,9 +3,16 @@ package river
 import (
 	"context"
 	"fmt"
+	"os"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/BurntSushi/toml"
+
+	"github.com/siddontang/go-mysql/mysql"
 
 	"github.com/juju/errors"
 	"github.com/siddontang/go-log/log"
@@ -24,6 +31,9 @@ type River struct {
 
 	canal *canal.Canal
 
+	// true: replication is running, false: replication interrupted.
+	canalRunning bool
+
 	rules map[string]*Rule
 
 	ctx    context.Context
@@ -36,6 +46,8 @@ type River struct {
 	st *stat
 
 	master *masterInfo
+
+	gtidEnabled bool
 
 	syncCh chan interface{}
 }
@@ -50,7 +62,7 @@ func NewRiver(c *Config) (*River, error) {
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 
 	var err error
-	if r.master, err = loadMasterInfo(c.DataDir); err != nil {
+	if r.master, err = r.loadMasterInfo(c.DataDir); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -78,10 +90,46 @@ func NewRiver(c *Config) (*River, error) {
 	cfg.HTTPS = r.c.ESHttps
 	r.es = elastic.NewClient(cfg)
 
+	r.canalRunning = true
 	r.st = &stat{r: r}
 	go r.st.Run(r.c.StatAddr)
 
 	return r, nil
+}
+
+func (r *River) loadMasterInfo(dataDir string) (*masterInfo, error) {
+	var m masterInfo
+
+	if len(dataDir) == 0 {
+		return &m, nil
+	}
+
+	m.filePath = path.Join(dataDir, "master.info")
+	m.lastSaveTime = time.Now()
+
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	f, err := os.Open(m.filePath)
+	if err != nil && !os.IsNotExist(errors.Cause(err)) {
+		return nil, errors.Trace(err)
+	} else if os.IsNotExist(errors.Cause(err)) {
+		return &m, nil
+	}
+	defer f.Close()
+
+	_, err = toml.DecodeReader(f, &m)
+	m.gset, err = mysql.ParseGTIDSet(r.c.Flavor, m.SGtid)
+
+	r.master = &m
+
+	if err != nil {
+		log.Errorf("parsed gtid str %s failed", err)
+		panic(err)
+	}
+
+	return &m, errors.Trace(err)
 }
 
 func (r *River) newCanal() error {
@@ -96,6 +144,7 @@ func (r *River) newCanal() error {
 	cfg.Dump.ExecutionPath = r.c.DumpExec
 	cfg.Dump.DiscardErr = false
 	cfg.Dump.SkipMasterData = r.c.SkipMasterData
+	cfg.Dump.GtidPurged = r.c.GtidPurged
 
 	for _, s := range r.c.Sources {
 		for _, t := range s.Tables {
@@ -295,7 +344,20 @@ func (r *River) Run() error {
 	go r.syncLoop()
 
 	pos := r.master.Position()
+	var gset mysql.GTIDSet
+	if r.master.gset != nil {
+		gset = r.master.gset.Clone()
+	}
+	if gset != nil && gset.String() != "" {
+		r.gtidEnabled = true
+		if err := r.canal.StartFromGTID(gset); err != nil {
+			r.canalRunning = false
+			log.Errorf("start canal err %v", err)
+			return errors.Trace(err)
+		}
+	}
 	if err := r.canal.RunFrom(pos); err != nil {
+		r.canalRunning = false
 		log.Errorf("start canal err %v", err)
 		return errors.Trace(err)
 	}

@@ -31,6 +31,11 @@ func (s *stat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.r.canalRunning {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprint("replication is interrupted")))
+		return
+	}
 	binName, _ := rr.GetString(0, 0)
 	binPos, _ := rr.GetUint(0, 1)
 

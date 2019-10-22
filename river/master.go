@@ -2,8 +2,6 @@ package river
 
 import (
 	"bytes"
-	"os"
-	"path"
 	"sync"
 	"time"
 
@@ -17,47 +15,25 @@ import (
 type masterInfo struct {
 	sync.RWMutex
 
-	Name string `toml:"bin_name"`
-	Pos  uint32 `toml:"bin_pos"`
+	Name  string `toml:"bin_name"`
+	Pos   uint32 `toml:"bin_pos"`
+	SGtid string `toml:"bin_gtid"`
+	gset  mysql.GTIDSet
 
 	filePath     string
 	lastSaveTime time.Time
 }
 
-func loadMasterInfo(dataDir string) (*masterInfo, error) {
-	var m masterInfo
-
-	if len(dataDir) == 0 {
-		return &m, nil
-	}
-
-	m.filePath = path.Join(dataDir, "master.info")
-	m.lastSaveTime = time.Now()
-
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	f, err := os.Open(m.filePath)
-	if err != nil && !os.IsNotExist(errors.Cause(err)) {
-		return nil, errors.Trace(err)
-	} else if os.IsNotExist(errors.Cause(err)) {
-		return &m, nil
-	}
-	defer f.Close()
-
-	_, err = toml.DecodeReader(f, &m)
-	return &m, errors.Trace(err)
-}
-
-func (m *masterInfo) Save(pos mysql.Position) error {
-	log.Infof("save position %s", pos)
+// TODO: add gtidset, what about update gtid ?
+func (m *masterInfo) Save(pos mysql.Position, gtid string) error {
+	log.Infof("save position %s, gtid: %s", pos, gtid)
 
 	m.Lock()
 	defer m.Unlock()
 
 	m.Name = pos.Name
 	m.Pos = pos.Pos
+	m.SGtid = gtid
 
 	if len(m.filePath) == 0 {
 		return nil
@@ -82,6 +58,7 @@ func (m *masterInfo) Save(pos mysql.Position) error {
 	return errors.Trace(err)
 }
 
+// TODO: add get gtid set for startWithGtid
 func (m *masterInfo) Position() mysql.Position {
 	m.RLock()
 	defer m.RUnlock()
@@ -92,8 +69,13 @@ func (m *masterInfo) Position() mysql.Position {
 	}
 }
 
+func (m *masterInfo) GtidSet() mysql.GTIDSet {
+	gtid, _ := mysql.ParseGTIDSet("mysql", m.SGtid)
+	return gtid
+}
+
 func (m *masterInfo) Close() error {
 	pos := m.Position()
 
-	return m.Save(pos)
+	return m.Save(pos, m.SGtid)
 }
