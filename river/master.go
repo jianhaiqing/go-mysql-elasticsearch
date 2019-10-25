@@ -26,7 +26,7 @@ type masterInfo struct {
 
 // TODO: add gtidset, what about update gtid ?
 func (m *masterInfo) Save(pos mysql.Position, gtid string) error {
-	log.Infof("save position %s, gtid: %s", pos, gtid)
+	log.Debugf("save position %s, gtid: %s", pos, gtid)
 
 	m.Lock()
 	defer m.Unlock()

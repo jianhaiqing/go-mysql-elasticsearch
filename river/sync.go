@@ -181,7 +181,7 @@ func (r *River) syncLoop() {
 
 		if needSavePos {
 			// only gtid is enabled and OnPosSynced handler is emmitted, or slave run with file-position mode.
-			log.Infof("needSavePos: %v, gtids: %s, gtidEnabled: %t", pos, gtids, r.gtidEnabled)
+			log.Debugf("needSavePos: %v, gtids: %s, gtidEnabled: %t", pos, gtids, r.gtidEnabled)
 			if (r.gtidEnabled && gtids != "") || !r.gtidEnabled {
 				if err := r.master.Save(pos, gtids); err != nil {
 					log.Errorf("save sync position %s err %v, close sync", pos, err)
