@@ -102,7 +102,7 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 }
 
 func (h *eventHandler) OnGTID(gtid mysql.GTIDSet) error {
-	log.Infof("gtid: %s", gtid)
+	log.Debugf("gtid: %s", gtid)
 	return nil
 }
 
@@ -112,7 +112,7 @@ func (h *eventHandler) OnPosSynced(pos mysql.Position, gset mysql.GTIDSet, force
 	if gset != nil {
 		gtids = gset.String()
 	}
-	log.Infof("OnPosSynced binlog: %v, gtid: %s", pos, gtids)
+	log.Debugf("OnPosSynced binlog: %v, gtid: %s", pos, gtids)
 	h.r.syncCh <- posSaver{pos, gtids, true}
 	return nil
 }
