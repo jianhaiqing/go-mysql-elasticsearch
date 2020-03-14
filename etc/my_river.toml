@@ -27,8 +27,6 @@ server_id = 1001
 # mysql or mariadb
 flavor = "mysql"
 
-# only on OR none can be set, none for gtid_mode=off, or mysql version lower than 5.6, which doesn't have gtid
-set_gtid_purged = "auto"
 # mysqldump execution path
 # if not set or empty, ignore mysqldump.
 mysqldump = "mysqldump"

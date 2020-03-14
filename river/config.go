@@ -34,8 +34,6 @@ type Config struct {
 
 	DumpExec       string `toml:"mysqldump"`
 	SkipMasterData bool   `toml:"skip_master_data"`
-	// set --set-gtid-purged none, auto; none for gtid is disabled or "version too low", auto for gtid_mode=on;
-	GtidPurged string `toml:"set_gtid_purged"`
 
 	Sources []SourceConfig `toml:"source"`
 

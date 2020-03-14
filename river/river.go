@@ -144,7 +144,6 @@ func (r *River) newCanal() error {
 	cfg.Dump.ExecutionPath = r.c.DumpExec
 	cfg.Dump.DiscardErr = false
 	cfg.Dump.SkipMasterData = r.c.SkipMasterData
-	cfg.Dump.GtidPurged = r.c.GtidPurged
 
 	for _, s := range r.c.Sources {
 		for _, t := range s.Tables {
