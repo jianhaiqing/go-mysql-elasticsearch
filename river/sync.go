@@ -496,6 +496,7 @@ func (r *River) doBulk(reqs []*elastic.BulkRequest) error {
 
 	if resp, err := r.es.Bulk(reqs); err != nil {
 		log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
+		r.canalRunning = false
 		return errors.Trace(err)
 	} else if resp.Code/100 == 2 || resp.Errors {
 		for i := 0; i < len(resp.Items); i++ {

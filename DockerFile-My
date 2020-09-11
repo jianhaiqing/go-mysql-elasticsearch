@@ -1,0 +1,12 @@
+FROM registry.gz.cvte.cn/percona/pt-tools:3.0
+
+WORKDIR /app
+
+COPY ./bin/go-mysql-elasticsearch.linux go-mysql-elasticsearch
+COPY ./bin/mysqldump ./bin/mysqldump8 /usr/bin/
+
+ADD start.sh start.sh
+
+RUN chmod +x go-mysql-elasticsearch start.sh
+
+CMD ["bash", "-c", "/app/start.sh"]
